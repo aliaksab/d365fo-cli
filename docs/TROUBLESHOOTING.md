@@ -437,7 +437,7 @@ Fix, in order:
    ```
 
 5. Verify. VS 2026 18.6+: the skills panel (Tools icon in Copilot Chat) lists every discovered skill. VS 2022 has no such panel — ask something D365FO-shaped and check that Copilot names `d365fo-cli` in its reply; force it with *"use the d365fo-cli skill"*. VS Code: type `/skills`, and check `chat.useAgentSkills` is enabled.
-6. Still nothing on an older Copilot build? Use the glob-scoped layout, which needs no skill support: copy `skills/copilot/*.instructions.md` into `<SolutionFolder>\.github\instructions\` and enable **Tools → Options → GitHub → Copilot → Copilot Chat → Enable custom instructions**. The two layouts coexist; `.github/copilot-instructions.md` is retired and can be deleted if an older install left one behind.
+6. Still nothing on an older Copilot build? Use the glob-scoped layout, which needs no skill support: copy all of `skills/copilot/*.instructions.md` into `<SolutionFolder>\.github\instructions\` — `d365fo-cli.instructions.md` is the always-on rule canon, the rest attach by glob — and remove `.github\skills\d365fo-cli\` so the canon is not loaded twice, and enable **Tools → Options → GitHub → Copilot → Copilot Chat → Enable custom instructions**. The two layouts coexist; `.github/copilot-instructions.md` is retired and can be deleted if an older install left one behind.
 
 ---
 

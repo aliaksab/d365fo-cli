@@ -4,6 +4,7 @@
 
 .DESCRIPTION
     Copies the bundled Anthropic skill folders:
+      - skills/anthropic/d365fo-cli/SKILL.md (router: first steps, tool mapping, rule canon)
       - skills/anthropic/<id>/SKILL.md      (one folder per topic)
     into <XppRepo>/.claude/skills/ so that Claude Code (CLI, VS Code and
     JetBrains extensions) and Claude Desktop pick them up automatically.
