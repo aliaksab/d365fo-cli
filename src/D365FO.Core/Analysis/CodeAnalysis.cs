@@ -64,6 +64,8 @@ public static class CodeAnalysis
             return ToolResult<object>.Fail(D365FoErrorCodes.BadInput,
                 "The scenario has no word longer than two characters to search on.");
 
+        if (!ModelFilter.TryResolve(repo, model, out model, out var badModel)) return badModel!;
+
         var result = MethodSourceSearch.Find(repo, words[0], kind: null, model: model, limit: 400);
         var hits = result.Hits
             .Where(h => words.Skip(1).All(w =>
@@ -127,6 +129,8 @@ public static class CodeAnalysis
         if (string.IsNullOrWhiteSpace(methodName))
             return ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "A method name is required.");
 
+        if (!ModelFilter.TryResolve(repo, model, out model, out var badModel)) return badModel!;
+
         var declared = repo.FindMethodDeclarations(methodName, model, limit);
 
         // Bodies are a separate question from declarations: the index knows every declaration,
@@ -175,6 +179,8 @@ public static class CodeAnalysis
         ArgumentNullException.ThrowIfNull(repo);
         if (string.IsNullOrWhiteSpace(api))
             return ToolResult<object>.Fail(D365FoErrorCodes.BadInput, "An API name is required.");
+
+        if (!ModelFilter.TryResolve(repo, model, out model, out var badModel)) return badModel!;
 
         var result = MethodSourceSearch.Find(repo, api, kind: null, model: model, limit: limit * 4);
 

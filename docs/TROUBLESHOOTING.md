@@ -180,7 +180,7 @@ The `D365FO.Bridge` child process requires the .NET Framework 4.8 runtime, which
 warning: bridge unavailable on this platform; falling back to index
 ```
 
-This is expected behaviour — the index still serves `search`, `get`, `find`, and `generate` commands. Only `find refs --xref` (which queries `DYNAMICSXREFDB` directly) requires the bridge.
+This is expected behaviour — the index still serves `search`, `get`, `find`, and `generate` commands. Only `find refs --xref` (which queries `DYNAMICSXREFDB` directly) requires the bridge, and it fails with `XREF_UNAVAILABLE` and the reason rather than quietly answering from the text scan. Drop `--xref` to get the text scan on purpose — it is not compiler-resolved and can miss references made through variables and aliases.
 
 ---
 
@@ -299,7 +299,7 @@ d365fo-index.sqlite-shm      ← shared memory for WAL
 
 ## Bridge child process issues
 
-**Symptom:** Commands that normally use the bridge (`get table`, `find refs --xref`) return stale or incomplete data, or `_source: "index"` when you expect `"bridge"`.
+**Symptom:** Commands that normally use the bridge (`get table`) return stale or incomplete data, or `_source: "index"` when you expect `"bridge"`; `find refs --xref` fails with `XREF_UNAVAILABLE`.
 
 **Checklist:**
 

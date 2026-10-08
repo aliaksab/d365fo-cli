@@ -19,6 +19,34 @@ was ported from.
 
 ## [Unreleased]
 
+### Fixed — lookups that answered nothing, or a different question, without saying so
+
+Found by an outside benchmark of CLI vs the XRef DB vs grep for D365 lookups, where 3 of 24 runs
+came back empty or short with no error.
+
+- **An unknown `--model` fails `MODEL_NOT_FOUND` instead of returning a successful zero.** Every
+  model filter is `m.Name = @model`, so the package folder (`ApplicationSuite`) where the model
+  (`Foundation`) was meant scanned nothing and answered `count: 0`. The name is now resolved
+  first: a case-only difference is corrected to the indexed spelling, a package name names the
+  models in it, and anything else gets the nearest models. Applies to `find refs|fields|
+  form-patterns|batch-jobs`, `analyze patterns|implementations|api-usage|integration`,
+  `report integrations`, and the matching MCP tools (`find_references`, `search` with `model`,
+  `analyze`, form-pattern `analyze`).
+- **`find refs --xref` fails `XREF_UNAVAILABLE` with the reason instead of falling back.** With
+  the bridge off, unavailable or the database unreachable, it used to run the text scan — on an
+  installation without the source index, a scan of every file on disk (measured: 88,000 files,
+  12.5 minutes) — and return its narrower answer (42 callers where the XRef DB has 72) as if it
+  were the compiler's. Drop `--xref` to ask for the text scan.
+- **`find refs --xref` no longer drops `--model` or misreads `--kind`.** The XRef query is keyed
+  by module and takes no model, so `--model` with `--xref` is now `BAD_INPUT`; `--kind` with
+  `--xref` must be a reference kind (`Call`, `Read`, `Set`, …) — `--kind class` used to filter on
+  a reference kind that does not exist and return an empty list.
+- **`get table --include` works, and methods are opt-in.** The option was declared and never
+  read, so every call returned every method signature (~44k tokens for `SalesLine`, most of it
+  methods). Parts are `fields,indexes,relations,deleteActions,methods` or `all`; the default is
+  every part but methods, with `methodCount` and a warning saying how to list them. An unknown
+  part is `BAD_INPUT`. Applies to the bridge path as well as the index.
+
 ### Added — named configuration profiles, one per D365FO environment/UDE (#210)
 
 - **Profiles are files, `%LOCALAPPDATA%\d365fo-cli\profiles\<name>.json`,** in the same flat

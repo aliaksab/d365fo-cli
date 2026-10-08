@@ -20,12 +20,16 @@ public sealed partial class ToolHandlers
 
     public ToolResult<object> SearchClasses(string query, string? model = null, int limit = 50)
     {
+        if (!ModelFilter.TryResolve(_repo, model, out model, out var badModel)) return badModel!;
+
         var items = _repo.SearchClasses(query, model, limit);
         return ToolResult<object>.Success(new { count = items.Count, items });
     }
 
     public ToolResult<object> SearchTables(string query, string? model = null, int limit = 50)
     {
+        if (!ModelFilter.TryResolve(_repo, model, out model, out var badModel)) return badModel!;
+
         var items = _repo.SearchTables(query, model, limit);
         return ToolResult<object>.Success(new { count = items.Count, items });
     }
@@ -956,6 +960,8 @@ public sealed partial class ToolHandlers
     public ToolResult<object> AnalyzeFormPatterns(
         string? pattern, string? table, string? similarTo, string? model, int limit)
     {
+        if (!ModelFilter.TryResolve(_repo, model, out model, out var badModel)) return badModel!;
+
         try
         {
             return ToolResult<object>.Success(
@@ -1010,12 +1016,16 @@ public sealed partial class ToolHandlers
 
     public ToolResult<object> AnalyzeIntegration(string? model)
     {
+        if (!ModelFilter.TryResolve(_repo, model, out model, out var badModel)) return badModel!;
+
         var issues = _repo.AnalyzeIntegration(model);
         return ToolResult<object>.Success(new { count = issues.Count, issues });
     }
 
     public ToolResult<object> ReportIntegrations(string? model)
     {
+        if (!ModelFilter.TryResolve(_repo, model, out model, out var badModel)) return badModel!;
+
         var r = _repo.GetIntegrationReport(model);
         return ToolResult<object>.Success(new
         {
@@ -1044,6 +1054,8 @@ public sealed partial class ToolHandlers
 
     public ToolResult<object> FindBatchJobs(string? model)
     {
+        if (!ModelFilter.TryResolve(_repo, model, out model, out var badModel)) return badModel!;
+
         var items = _repo.FindBatchJobs(model);
         return ToolResult<object>.Success(new { count = items.Count, items });
     }
@@ -2709,6 +2721,7 @@ public sealed partial class ToolHandlers
     {
         if (string.IsNullOrWhiteSpace(name))
             return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+        if (!ModelFilter.TryResolve(_repo, model, out model, out var badModel)) return badModel!;
 
         var result = MethodSourceSearch.Find(_repo, name, kind, model, limit);
         var items = result.Hits.Select(h => new
@@ -2743,6 +2756,7 @@ public sealed partial class ToolHandlers
     {
         if (string.IsNullOrWhiteSpace(name))
             return ToolResult<object>.Fail("BAD_INPUT", "name is required.");
+        if (!ModelFilter.TryResolve(_repo, model, out model, out var badModel)) return badModel!;
 
         var items = _repo.FindTablesByField(name, model, limit);
         return ToolResult<object>.Success(new { count = items.Count, items });
