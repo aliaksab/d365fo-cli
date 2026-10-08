@@ -20,7 +20,10 @@ public sealed class ReportIntegrationsCommand : Command<ReportIntegrationsComman
     public override int Execute(CommandContext ctx, Settings settings)
     {
         var kind   = OutputMode.Resolve(settings.Output);
-        var report = RepoFactory.Create().GetIntegrationReport(settings.Model);
+        var repo   = RepoFactory.Create();
+        if (!ModelFilter.TryResolve(repo, settings.Model, out var model, out var badModel))
+            return RenderHelpers.Render(kind, badModel!);
+        var report = repo.GetIntegrationReport(model);
 
         return RenderHelpers.Render(kind, ToolResult<object>.Success(new
         {

@@ -3,6 +3,7 @@ using D365FO.Core.Analysis;
 using Spectre.Console.Cli;
 using D365FO.Cli.Commands.Get;
 using D365FO.Core.Bridge;
+using D365FO.Core.Index;
 
 namespace D365FO.Cli.Commands.Find;
 
@@ -110,7 +111,9 @@ public sealed class FindFieldsCommand : Command<FindFieldsCommand.Settings>
         if (string.IsNullOrWhiteSpace(settings.Name))
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "Name required."));
         var repo = RepoFactory.Create();
-        var items = repo.FindTablesByField(settings.Name, settings.Model, settings.Limit);
+        if (!ModelFilter.TryResolve(repo, settings.Model, out var model, out var badModel))
+            return RenderHelpers.Render(kind, badModel!);
+        var items = repo.FindTablesByField(settings.Name, model, settings.Limit);
         return RenderHelpers.Render(kind,
             ToolResult<object>.Success(new { count = items.Count, items }));
     }
@@ -183,18 +186,18 @@ public sealed class FindRefsCommand : Command<FindRefsCommand.Settings>
         public string Name { get; init; } = "";
 
         [CommandOption("--kind <KIND>")]
-        [System.ComponentModel.Description("Restrict scan to a single artifact kind: class | table | form.")]
+        [System.ComponentModel.Description("Text scan: restrict to one artifact kind — class | table | form. With --xref: restrict to one reference kind — Declaration | Set | Read | Call | Reference | Type | Extends | Implements.")]
         public string? Kind { get; init; }
 
         [CommandOption("--model <NAME>")]
-        [System.ComponentModel.Description("Restrict scan to a single model.")]
+        [System.ComponentModel.Description("Restrict the text scan to a single model (not the package folder: Foundation, not ApplicationSuite). Not supported with --xref.")]
         public string? Model { get; init; }
 
         [CommandOption("-l|--limit <N>")]
         public int Limit { get; init; } = 200;
 
         [CommandOption("--xref")]
-        [System.ComponentModel.Description("Prefer the DYNAMICSXREFDB via the metadata bridge. Requires D365FO_BRIDGE_ENABLED=1 and a populated DYNAMICSXREFDB on the VM.")]
+        [System.ComponentModel.Description("Answer from DYNAMICSXREFDB via the metadata bridge — compiler-resolved, unlike the text scan. Requires D365FO_BRIDGE_ENABLED=1 and a populated DYNAMICSXREFDB on the VM; fails XREF_UNAVAILABLE rather than falling back to the text scan.")]
         public bool Xref { get; init; }
     }
 
@@ -205,17 +208,11 @@ public sealed class FindRefsCommand : Command<FindRefsCommand.Settings>
             return RenderHelpers.Render(kind, ToolResult<object>.Fail("BAD_INPUT", "Name required."));
 
         // Bridge-backed compiler xref path — fast, precise, and returns
-        // line/column plus reference kind (Call/Read/Set/Type/...).
-        if (settings.Xref && BridgeGate.ShouldTry())
-        {
-            var xref = BridgeGate.TryFindReferences(settings.Name, settings.Kind, settings.Limit);
-            if (xref is not null)
-            {
-                xref["_source"] = "xrefdb";
-                return RenderHelpers.Render(kind, ToolResult<object>.Success((object)xref));
-            }
-            // Fall through to regex scan if bridge / DB unavailable.
-        }
+        // line/column plus reference kind (Call/Read/Set/Type/...). Asked for
+        // by name, so it answers or fails: the text scan is a different, less
+        // complete answer and must not stand in for it unannounced.
+        if (settings.Xref)
+            return RenderHelpers.Render(kind, FindViaXref(settings));
 
         // Regex scan over indexed X++ source — shared with the unified
         // `find_references` MCP tool (D365FO.Mcp.ToolHandlers.FindReferences).
@@ -235,6 +232,43 @@ public sealed class FindRefsCommand : Command<FindRefsCommand.Settings>
                 $"find refs failed: {ex.Message}",
                 "Try narrowing --kind/--model, or run `d365fo doctor --output json` to confirm the index is healthy."));
         }
+    }
+
+    private static readonly string[] XrefReferenceKinds =
+        ["Declaration", "Set", "Read", "Call", "Reference", "Type", "Extends", "Implements"];
+
+    private static ToolResult<object> FindViaXref(Settings settings)
+    {
+        // DYNAMICSXREFDB is keyed by module (package), and the bridge query takes no model —
+        // silently dropping --model would widen the answer to every module.
+        if (!string.IsNullOrWhiteSpace(settings.Model))
+            return ToolResult<object>.Fail(D365FoErrorCodes.BadInput,
+                "--model cannot be combined with --xref: DYNAMICSXREFDB is keyed by module, not model.",
+                "Drop --model — every xref row carries its `module` — or drop --xref for the text scan, which honours --model.");
+
+        // --kind means an artifact kind to the text scan and a reference kind to the xref
+        // query; `--kind class` here would filter on a reference kind that does not exist
+        // and return an empty list.
+        string? refKind = null;
+        if (!string.IsNullOrWhiteSpace(settings.Kind))
+        {
+            refKind = XrefReferenceKinds.FirstOrDefault(k =>
+                string.Equals(k, settings.Kind.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (refKind is null)
+                return ToolResult<object>.Fail(D365FoErrorCodes.BadInput,
+                    $"--kind '{settings.Kind}' is not a reference kind. With --xref, --kind filters on how the symbol is used.",
+                    "Use one of: " + string.Join(" | ", XrefReferenceKinds) + ". Every xref row's `source` path names the referencing artifact.");
+        }
+
+        var (xref, error) = BridgeGate.FindReferencesViaXref(settings.Name, refKind, settings.Limit);
+        if (xref is null)
+            return ToolResult<object>.Fail(D365FoErrorCodes.XrefUnavailable,
+                "--xref was requested but DYNAMICSXREFDB could not be queried: " + error,
+                "Fix the bridge (`d365fo doctor --output json`), or drop --xref for the text scan over indexed X++ "
+                + "source — it is not compiler-resolved and can miss references made through variables and aliases.");
+
+        xref["_source"] = "xrefdb";
+        return ToolResult<object>.Success((object)xref);
     }
 }
 
@@ -277,9 +311,12 @@ public sealed class FindFormPatternsCommand : Command<FindFormPatternsCommand.Se
 
         try
         {
+            var repo = RepoFactory.Create();
+            if (!ModelFilter.TryResolve(repo, settings.Model, out var model, out var badModel))
+                return RenderHelpers.Render(kind, badModel!);
             var result = FormPatternMiner.Analyze(
-                RepoFactory.Create(), settings.Pattern, settings.Table,
-                settings.SimilarTo, settings.Model, settings.Limit);
+                repo, settings.Pattern, settings.Table,
+                settings.SimilarTo, model, settings.Limit);
             return RenderHelpers.Render(kind, ToolResult<object>.Success(result));
         }
         catch (FormPatternMiner.ReferenceNotFoundException ex)
@@ -392,7 +429,10 @@ public sealed class FindBatchJobsCommand : Command<FindBatchJobsCommand.Settings
     public override int Execute(CommandContext ctx, Settings settings)
     {
         var kind = OutputMode.Resolve(settings.Output);
-        var jobs = RepoFactory.Create().FindBatchJobs(settings.Model);
+        var repo = RepoFactory.Create();
+        if (!ModelFilter.TryResolve(repo, settings.Model, out var model, out var badModel))
+            return RenderHelpers.Render(kind, badModel!);
+        var jobs = repo.FindBatchJobs(model);
         return RenderHelpers.Render(kind, ToolResult<object>.Success(new { count = jobs.Count, items = jobs }));
     }
 }

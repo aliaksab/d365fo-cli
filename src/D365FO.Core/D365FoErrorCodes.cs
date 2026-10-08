@@ -63,6 +63,7 @@ public static class D365FoErrorCodes
 
     // Bridge / structured method modify (#112)
     public const string BridgeRequired = "BRIDGE_REQUIRED";
+    public const string XrefUnavailable = "XREF_UNAVAILABLE";
     public const string ValidationFailed = "VALIDATION_FAILED";
     public const string GroundingRequired = "GROUNDING_REQUIRED";
 

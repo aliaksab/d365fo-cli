@@ -2240,6 +2240,24 @@ public sealed partial class MetadataRepository
     }
 
     /// <summary>
+    /// One sample source path per model, so a caller can tell which package folder a model
+    /// lives in (<c>&lt;Package&gt;/&lt;Model&gt;/AxClass/X.xml</c>). The index stores no package
+    /// column; models with no class or table carry no path and are absent.
+    /// </summary>
+    public IReadOnlyList<(string Model, string SourcePath)> GetModelSamplePaths()
+    {
+        using var conn = OpenReadOnly();
+        return conn.Query<(string, string)>(@"
+            SELECT m.Name, MIN(s.SourcePath)
+              FROM Models m
+              JOIN (SELECT ModelId, SourcePath FROM Classes WHERE SourcePath IS NOT NULL AND SourcePath <> ''
+                    UNION ALL
+                    SELECT ModelId, SourcePath FROM Tables  WHERE SourcePath IS NOT NULL AND SourcePath <> '') s
+                ON s.ModelId = m.ModelId
+             GROUP BY m.Name").ToList();
+    }
+
+    /// <summary>
     /// Enumerate (Kind, Name, Model, SourcePath) tuples for artifacts whose
     /// X++ source is worth scanning for reverse references. Filters to rows
     /// that have a non-empty SourcePath. Used by <c>find refs</c>.
