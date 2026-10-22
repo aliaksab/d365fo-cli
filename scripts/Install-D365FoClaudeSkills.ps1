@@ -79,8 +79,10 @@ if (-not (Test-Path $XppRepo)) {
 
 # -- Regenerate skills if the folder is empty (first run / clean clone) ---------
 # Note: @(...) keeps .Count valid under Set-StrictMode when the folder is absent.
+# The d365fo-cli router is hand-written and survives a re-emit, so it alone does not
+# count: with no topic folders next to it, the topics still have to be generated.
 $skillDirs = @(Get-ChildItem -Path $skillSrc -Directory -ErrorAction SilentlyContinue)
-if ($skillDirs.Count -eq 0) {
+if (@($skillDirs | Where-Object { $_.Name -ne 'd365fo-cli' }).Count -eq 0) {
     Write-Warning "No skills found in $skillSrc - regenerating..."
     $emitPs1 = Join-Path $CliRepo 'scripts\emit-skills.ps1'
     $emitPy  = Join-Path $CliRepo 'scripts\emit-skills.py'

@@ -144,6 +144,7 @@ from the `d365fo agent-prompt` / MCP server instructions.
 
 > Generated from `skills/_source` by `scripts/emit-skills.py`. Do not edit by hand —
 > edit the topic that owns the rule and re-run the script. CI fails on drift.
+
 <!-- BEGIN canon -->
 ### Never-auto
 
