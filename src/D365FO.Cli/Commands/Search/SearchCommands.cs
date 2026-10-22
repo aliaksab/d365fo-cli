@@ -1,4 +1,5 @@
 using D365FO.Core;
+using D365FO.Core.Index;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -22,7 +23,9 @@ public sealed class SearchClassCommand : Command<SearchClassCommand.Settings>
     {
         var kind = OutputMode.Resolve(settings.Output);
         var repo = RepoFactory.Create();
-        var matches = repo.SearchClasses(settings.Query, settings.Model, settings.Limit);
+        if (!ModelFilter.TryResolve(repo, settings.Model, out var model, out var badModel))
+            return RenderHelpers.Render(kind, badModel!);
+        var matches = repo.SearchClasses(settings.Query, model, settings.Limit);
         var result = ToolResult<object>.Success(new { count = matches.Count, items = matches });
 
         return RenderHelpers.Render(kind, result, _ =>
@@ -122,7 +125,9 @@ public sealed class SearchTableCommand : Command<SearchTableCommand.Settings>
     {
         var kind = OutputMode.Resolve(settings.Output);
         var repo = RepoFactory.Create();
-        var items = repo.SearchTables(settings.Query, settings.Model, settings.Limit);
+        if (!ModelFilter.TryResolve(repo, settings.Model, out var model, out var badModel))
+            return RenderHelpers.Render(kind, badModel!);
+        var items = repo.SearchTables(settings.Query, model, settings.Limit);
         return RenderHelpers.Render(kind, ToolResult<object>.Success(new { count = items.Count, items }));
     }
 }

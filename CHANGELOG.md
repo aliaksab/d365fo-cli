@@ -29,7 +29,7 @@ came back empty or short with no error.
   (`Foundation`) was meant scanned nothing and answered `count: 0`. The name is now resolved
   first: a case-only difference is corrected to the indexed spelling, a package name names the
   models in it, and anything else gets the nearest models. Applies to `find refs|fields|
-  form-patterns|batch-jobs`, `analyze patterns|implementations|api-usage|integration`,
+  form-patterns|batch-jobs`, `search class|table`, `analyze patterns|implementations|api-usage|integration`,
   `report integrations`, and the matching MCP tools (`find_references`, `search` with `model`,
   `analyze`, form-pattern `analyze`).
 - **`find refs --xref` fails `XREF_UNAVAILABLE` with the reason instead of falling back.** With

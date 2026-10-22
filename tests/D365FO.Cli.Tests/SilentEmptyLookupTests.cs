@@ -181,6 +181,30 @@ public sealed class SilentEmptyLookupTests : IDisposable
         Assert.False(allData.TryGetProperty("methodCount", out _));
     }
 
+    // ---- search class|table --model ----
+
+    [Fact]
+    public void Search_rejects_a_package_name_where_a_model_is_meant()
+    {
+        // The MCP search tools already resolved the model; the CLI commands passed it straight
+        // to `m.Name = @model` and answered a successful zero.
+        IndexOneTable();
+
+        var (tableExit, tables) = Run(() => new D365FO.Cli.Commands.Search.SearchTableCommand().Execute(null!,
+            new D365FO.Cli.Commands.Search.SearchTableCommand.Settings { Query = "ConSilent", Model = "ConPkg", Output = "json" }));
+        Assert.NotEqual(0, tableExit);
+        Assert.Equal(D365FoErrorCodes.ModelNotFound, ErrorCode(tables));
+
+        var (classExit, classes) = Run(() => new D365FO.Cli.Commands.Search.SearchClassCommand().Execute(null!,
+            new D365FO.Cli.Commands.Search.SearchClassCommand.Settings { Query = "ConSilent", Model = "ConPkg", Output = "json" }));
+        Assert.NotEqual(0, classExit);
+        Assert.Equal(D365FoErrorCodes.ModelNotFound, ErrorCode(classes));
+
+        var (_, found) = Run(() => new D365FO.Cli.Commands.Search.SearchTableCommand().Execute(null!,
+            new D365FO.Cli.Commands.Search.SearchTableCommand.Settings { Query = "ConSilent", Model = "conmodel", Output = "json" }));
+        Assert.Equal(1, found.GetProperty("data").GetProperty("count").GetInt32());
+    }
+
     private void IndexOneTable()
     {
         var packages = Path.Combine(_root, "packages");
