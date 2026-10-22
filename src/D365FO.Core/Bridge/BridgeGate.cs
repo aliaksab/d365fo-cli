@@ -195,13 +195,25 @@ public static class BridgeGate
 
     /// <summary>
     /// Query the DYNAMICSXREFDB for reverse references via the bridge.
-    /// Returns the raw bridge JSON (tag _source already included by the
-    /// bridge) or null on any failure — callers fall back to the regex
-    /// scanner.
+    /// Returns the raw bridge JSON, or null with the reason it could not be queried.
     /// </summary>
-    public static JsonObject? TryFindReferences(string symbol, string? kind, int limit)
+    /// <remarks>
+    /// The caller asked for the compiler's cross-reference by name, so there is no fallback
+    /// here: a text scan answers a different question (it misses what the compiler resolves
+    /// through variables and aliases), and handing it back as if it were the xref answer is
+    /// how 72 callers became 42 without a word.
+    /// </remarks>
+    public static (JsonObject? Result, string? Error) FindReferencesViaXref(string symbol, string? kind, int limit)
     {
-        if (!BridgeClient.IsAvailable()) return null;
+        if (!ShouldTry())
+            return (null, "the metadata bridge is disabled — set D365FO_BRIDGE_ENABLED=1 on the dev VM.");
+        if (!BridgeClient.IsAvailable())
+        {
+            return (null, OperatingSystem.IsWindows()
+                ? "the bridge executable was not found — see `d365fo doctor` (bridge.executable) or set D365FO_BRIDGE_PATH."
+                : "the bridge runs on Windows only.");
+        }
+
         try
         {
             var options = DefaultOptions();
@@ -209,14 +221,19 @@ public static class BridgeGate
             var args = new JsonObject { ["symbol"] = symbol, ["limit"] = limit };
             if (!string.IsNullOrEmpty(kind)) args["kind"] = kind;
             var result = client.SendAsync("findReferences", args).GetAwaiter().GetResult();
-            if (result is null) return null;
+            if (result is null) return (null, "the bridge returned no result.");
             var ok = (bool?)result["ok"] ?? false;
-            if (!ok) return null;
-            return result;
+            if (!ok)
+            {
+                var err = (string?)result["error"] ?? "UNKNOWN";
+                var msg = (string?)result["message"] ?? string.Empty;
+                return (null, err + ": " + msg);
+            }
+            return (result, null);
         }
-        catch (BridgeException)
+        catch (BridgeException ex)
         {
-            return null;
+            return (null, "bridge error: " + ex.Message);
         }
     }
 

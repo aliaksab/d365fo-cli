@@ -21,7 +21,10 @@ public sealed class AnalyzeIntegrationCommand : Command<AnalyzeIntegrationComman
     public override int Execute(CommandContext ctx, Settings settings)
     {
         var kind = OutputMode.Resolve(settings.Output);
-        var issues = RepoFactory.Create().AnalyzeIntegration(settings.Model);
+        var repo = RepoFactory.Create();
+        if (!ModelFilter.TryResolve(repo, settings.Model, out var model, out var badModel))
+            return RenderHelpers.Render(kind, badModel!);
+        var issues = repo.AnalyzeIntegration(model);
 
         return RenderHelpers.Render(kind, ToolResult<object>.Success(new
         {

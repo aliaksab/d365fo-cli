@@ -14,7 +14,7 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
         public string Name { get; init; } = "";
 
         [CommandOption("--include <PARTS>")]
-        [System.ComponentModel.Description("Comma list: fields,indexes,relations (default: all)")]
+        [System.ComponentModel.Description("Comma list of parts: fields,indexes,relations,deleteActions,methods — or all. Default: every part but methods (a large table declares hundreds; `methodCount` says how many were left out).")]
         public string? Include { get; init; }
 
         [CommandOption("--merged")]
@@ -22,9 +22,66 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
         public bool Merged { get; init; }
     }
 
+    /// <summary>The parts <c>--include</c> selects, keyed by their JSON name.</summary>
+    internal static readonly string[] Parts = ["fields", "indexes", "relations", "deleteActions", "methods"];
+
+    /// <summary>
+    /// Parse <c>--include</c>. Null means the default: every part but methods, which on a
+    /// table like SalesLine is most of a ~44k-token answer to "what fields does it have".
+    /// </summary>
+    internal static bool TryParseInclude(string? include, out HashSet<string> parts, out ToolResult<object>? failure)
+    {
+        parts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        failure = null;
+        if (string.IsNullOrWhiteSpace(include))
+        {
+            parts.UnionWith(Parts.Where(p => p != "methods"));
+            return true;
+        }
+
+        foreach (var raw in include.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (string.Equals(raw, "all", StringComparison.OrdinalIgnoreCase)) { parts.UnionWith(Parts); continue; }
+            var part = Parts.FirstOrDefault(p => string.Equals(p, raw.Replace("-", ""), StringComparison.OrdinalIgnoreCase));
+            if (part is null)
+            {
+                failure = ToolResult<object>.Fail(D365FoErrorCodes.BadInput,
+                    $"--include: unknown part '{raw}'.",
+                    "Use a comma list of: " + string.Join(", ", Parts) + " — or all.");
+                return false;
+            }
+            parts.Add(part);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Drop the unselected parts from a bridge payload (the serialised AxTable, whose
+    /// collections are named like the parts) and say how many methods were left out.
+    /// </summary>
+    internal static int ApplyInclude(System.Text.Json.Nodes.JsonObject payload, HashSet<string> parts)
+    {
+        var omitted = 0;
+        foreach (var part in Parts.Where(p => !parts.Contains(p)))
+        {
+            var key = payload.Select(kv => kv.Key)
+                .FirstOrDefault(k => string.Equals(k, part, StringComparison.OrdinalIgnoreCase));
+            if (key is null) continue;
+            if (part == "methods" && payload[key] is System.Text.Json.Nodes.JsonArray methods)
+                payload["methodCount"] = omitted = methods.Count;
+            payload.Remove(key);
+        }
+        return omitted;
+    }
+
+    private static IReadOnlyList<string>? MethodsOmitted(int count) => count == 0 ? null :
+        [$"{count} method(s) not shown — pass --include methods (or --include all) to list them."];
+
     public override int Execute(CommandContext ctx, Settings settings)
     {
         var kind = OutputMode.Resolve(settings.Output);
+        if (!TryParseInclude(settings.Include, out var parts, out var badInclude))
+            return RenderHelpers.Render(kind, badInclude!);
 
         // The merged view is assembled from the index plus each extension's own XML, so it
         // cannot come from the bridge's single-object read — resolve it before that gate.
@@ -42,7 +99,8 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
             var bridged = BridgeGate.TryReadTable(settings.Name);
             if (bridged is not null)
             {
-                return RenderHelpers.Render(kind, ToolResult<object>.Success(bridged));
+                var omitted = bridged is System.Text.Json.Nodes.JsonObject bridgedObj ? ApplyInclude(bridgedObj, parts) : 0;
+                return RenderHelpers.Render(kind, ToolResult<object>.Success(bridged, MethodsOmitted(omitted)));
             }
         }
 
@@ -57,24 +115,29 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
                 ToolResult<object>.Fail("TABLE_NOT_FOUND", $"Table '{settings.Name}' not found in index.", hint));
         }
 
+        // Unselected parts are null and so left out of the JSON (D365Json ignores nulls).
         var result = ToolResult<object>.Success(new
         {
             table = details.Table,
-            fields = details.Fields,
-            relations = details.Relations,
-            methods = details.Methods,
-            indexes = details.Indexes,
-            deleteActions = details.DeleteActions,
-        });
+            fields = parts.Contains("fields") ? details.Fields : null,
+            relations = parts.Contains("relations") ? details.Relations : null,
+            methods = parts.Contains("methods") ? details.Methods : null,
+            methodCount = parts.Contains("methods") ? (int?)null : details.Methods.Count,
+            indexes = parts.Contains("indexes") ? details.Indexes : null,
+            deleteActions = parts.Contains("deleteActions") ? details.DeleteActions : null,
+        }, MethodsOmitted(parts.Contains("methods") ? 0 : details.Methods.Count));
 
         return RenderHelpers.Render(kind, result, _ =>
         {
             AnsiConsole.MarkupLine($"[bold]{RenderHelpers.Escape(details.Table.Name)}[/] — {RenderHelpers.Escape(details.Table.Label) ?? "(no label)"}  [grey]({details.Table.Model})[/]");
-            var table = new Table().AddColumn("Field").AddColumn("Type/EDT").AddColumn("Label").AddColumn("Mand.");
-            foreach (var f in details.Fields)
-                table.AddRow(f.Name, f.EdtName ?? f.Type ?? "-", RenderHelpers.Escape(f.Label) ?? "-", f.Mandatory ? "yes" : "");
-            AnsiConsole.Write(table);
-            if (details.Indexes.Count > 0)
+            if (parts.Contains("fields"))
+            {
+                var table = new Table().AddColumn("Field").AddColumn("Type/EDT").AddColumn("Label").AddColumn("Mand.");
+                foreach (var f in details.Fields)
+                    table.AddRow(f.Name, f.EdtName ?? f.Type ?? "-", RenderHelpers.Escape(f.Label) ?? "-", f.Mandatory ? "yes" : "");
+                AnsiConsole.Write(table);
+            }
+            if (parts.Contains("indexes") && details.Indexes.Count > 0)
             {
                 AnsiConsole.MarkupLine("[bold]Indexes[/]");
                 var ix = new Table().AddColumn("Name").AddColumn("Fields").AddColumn("AllowDup").AddColumn("AltKey");
@@ -82,7 +145,7 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
                     ix.AddRow(i.Name, i.FieldsCsv ?? "-", i.AllowDuplicates ? "yes" : "", i.AlternateKey ? "yes" : "");
                 AnsiConsole.Write(ix);
             }
-            if (details.Relations.Count > 0)
+            if (parts.Contains("relations") && details.Relations.Count > 0)
             {
                 AnsiConsole.MarkupLine("[bold]Relations[/]");
                 var rel = new Table().AddColumn("From").AddColumn("To").AddColumn("Cardinality").AddColumn("Name");
@@ -90,7 +153,7 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
                     rel.AddRow(r.FromTable, r.ToTable, r.Cardinality ?? "-", r.RelationName ?? "-");
                 AnsiConsole.Write(rel);
             }
-            if (details.DeleteActions.Count > 0)
+            if (parts.Contains("deleteActions") && details.DeleteActions.Count > 0)
             {
                 AnsiConsole.MarkupLine("[bold]Delete actions[/]");
                 var da = new Table().AddColumn("Name").AddColumn("Related").AddColumn("Action");
@@ -98,7 +161,9 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
                     da.AddRow(d.Name ?? "-", d.RelatedTable, d.DeleteAction ?? "-");
                 AnsiConsole.Write(da);
             }
-            if (details.Methods.Count > 0)
+            if (!parts.Contains("methods") && details.Methods.Count > 0)
+                AnsiConsole.MarkupLine($"[grey]{details.Methods.Count} method(s) not shown — pass --include methods.[/]");
+            else if (details.Methods.Count > 0)
             {
                 AnsiConsole.MarkupLine("[bold]Methods[/]");
                 var mt = new Table().AddColumn("Name").AddColumn("Return").AddColumn("Static").AddColumn("Signature");
