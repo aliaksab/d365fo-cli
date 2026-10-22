@@ -38,7 +38,12 @@ behind the most setup.
   `D365FO_BRIDGE_ENABLED=1`; both run one shared query (`D365FO.Core/Xref/XrefQuery.cs`,
   compiled into the net48 bridge as shared source). The names-only answer is one row per
   object with its module, reference kinds and members; `--lines 1` returns the per-reference
-  rows with line and column. MCP `find_references` gains `xref: true`.
+  rows with line and column. MCP `find_references` gains `xref: true`. The names-only query
+  aggregates in SQL (one row per source path and kind, with a count), so a method that reads a
+  field 300 times does not use up the row budget before the next object is reached.
+- **Proven against SQL Server.** `XrefLiveSqlTests` (opt-in, `D365FO_TEST_SQLSERVER`) runs the
+  real query, connection-string default included, on a seeded throwaway database; run against
+  SQL Server 2022 in Docker, together with the trimmed single-file binary.
 - **Fixed — `--xref --kind Call` undercounted.** The reference-kind filter ran on the rows
   `TOP` had already cut, i.e. "the Calls among the first N references of any kind". It is now
   in the `WHERE` clause.

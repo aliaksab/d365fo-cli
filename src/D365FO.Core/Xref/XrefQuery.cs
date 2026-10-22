@@ -155,7 +155,11 @@ namespace D365FO.Core.Xref
         /// SQL, before <c>TOP</c> — filtering the returned rows instead answered "the Calls among
         /// the first N references of any kind", which undercounts without saying so.</param>
         /// <param name="limit">Most rows to return.</param>
-        public static void Prepare(DbCommand cmd, TargetPaths paths, int kindId, int limit)
+        /// <param name="aggregate">One row per (source path, kind) with a <c>Refs</c> count, instead of
+        /// one per reference. For "who uses X" the per-reference rows are mostly repeats — one method
+        /// reading a field 300 times is 300 rows — and they used up the row limit before the next
+        /// object was reached. Plain GROUP BY/COUNT, so SQL Server 2016 (older dev VMs) runs it.</param>
+        public static void Prepare(DbCommand cmd, TargetPaths paths, int kindId, int limit, bool aggregate = false)
         {
             if (cmd == null) throw new ArgumentNullException(nameof(cmd));
             if (paths == null) throw new ArgumentNullException(nameof(paths));
@@ -188,19 +192,29 @@ namespace D365FO.Core.Xref
                 AddParameter(cmd, "@kind", kindId);
             }
 
-            cmd.CommandText = @"
+            const string from = @"
+FROM [References] r
+INNER JOIN Names srcName ON srcName.Id = r.SourceId
+INNER JOIN Names tgtName ON tgtName.Id = r.TargetId
+LEFT  JOIN Modules m     ON m.Id = srcName.ModuleId
+WHERE ";
+            cmd.CommandText = aggregate
+                ? @"
+SELECT TOP (@limit)
+    srcName.Path  AS SourcePath,
+    r.Kind        AS Kind,
+    MIN(m.Module) AS Module,
+    COUNT(*)      AS Refs" + from + where + @"
+GROUP BY srcName.Path, r.Kind
+ORDER BY srcName.Path, r.Kind"
+                : @"
 SELECT TOP (@limit)
     srcName.Path  AS SourcePath,
     tgtName.Path  AS TargetPath,
     r.Kind        AS Kind,
     r.Line        AS Line,
     r.[Column]    AS Col,
-    m.Module      AS Module
-FROM [References] r
-INNER JOIN Names srcName ON srcName.Id = r.SourceId
-INNER JOIN Names tgtName ON tgtName.Id = r.TargetId
-LEFT  JOIN Modules m     ON m.Id = srcName.ModuleId
-WHERE " + where + @"
+    m.Module      AS Module" + from + where + @"
 ORDER BY srcName.Path";
             AddParameter(cmd, "@limit", limit);
         }
@@ -210,10 +224,11 @@ ORDER BY srcName.Path";
         /// </summary>
         /// <returns>
         /// <c>{ ok:true, symbol, kindFilter, count, truncated, scoped, items:[{source, target, kind,
-        /// kindId, line, column, module}] }</c>, or <c>{ ok:false, error:"XREFDB_UNAVAILABLE",
+        /// kindId, line, column, module}] }</c> — with <paramref name="aggregate"/>, items are
+        /// <c>{source, kind, kindId, module, refs}</c> — or <c>{ ok:false, error:"XREFDB_UNAVAILABLE",
         /// message }</c> when the database could not be queried.
         /// </returns>
-        public static JsonObject Find(DbConnection connection, string symbol, string kindFilter, int limit)
+        public static JsonObject Find(DbConnection connection, string symbol, string kindFilter, int limit, bool aggregate = false)
         {
             if (string.IsNullOrWhiteSpace(symbol))
                 return Fail("MISSING_ARG", "symbol is required");
@@ -236,12 +251,24 @@ ORDER BY srcName.Path";
                 using (var cmd = connection.CreateCommand())
                 {
                     cmd.CommandTimeout = 30;
-                    Prepare(cmd, paths, kindId, limit);
+                    Prepare(cmd, paths, kindId, limit, aggregate);
                     using (var r = cmd.ExecuteReader())
                     {
                         while (r.Read())
                         {
                             var kind = Convert.ToInt32(r["Kind"]);
+                            if (aggregate)
+                            {
+                                items.Add(new JsonObject
+                                {
+                                    ["source"] = r["SourcePath"] as string,
+                                    ["kind"] = KindLabel(kind),
+                                    ["kindId"] = kind,
+                                    ["module"] = r["Module"] as string ?? string.Empty,
+                                    ["refs"] = Convert.ToInt32(r["Refs"]),
+                                });
+                                continue;
+                            }
                             items.Add(new JsonObject
                             {
                                 ["source"] = r["SourcePath"] as string,

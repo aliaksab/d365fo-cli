@@ -8,7 +8,7 @@ namespace D365FO.Core.Xref;
 /// One source of xref rows: the raw <see cref="XrefQuery.Find"/> payload, or null with the
 /// reason it could not be queried.
 /// </summary>
-internal delegate (JsonObject? Result, string? Error) XrefSource(string symbol, string? kind, int limit);
+internal delegate (JsonObject? Result, string? Error) XrefSource(string symbol, string? kind, int limit, bool aggregate);
 
 /// <summary>
 /// The compiler's where-used, answered from <c>DYNAMICSXREFDB</c> — shared by
@@ -29,7 +29,10 @@ internal delegate (JsonObject? Result, string? Error) XrefSource(string symbol, 
 /// </remarks>
 public static class XrefReferences
 {
-    /// <summary>Raw rows read per object asked for, in the names-only answer.</summary>
+    /// <summary>
+    /// (source path, kind) rows read per object asked for, in the names-only answer — an object
+    /// contributes one per member and kind that references the symbol.
+    /// </summary>
     private const int RowsPerObject = 20;
 
     /// <summary>Ceiling on raw rows read for a names-only answer.</summary>
@@ -64,7 +67,8 @@ public static class XrefReferences
     /// <param name="lines">0 for one row per referencing object; above 0 for one row per reference.</param>
     public static ToolResult<object> Find(string symbol, string? kind, string? model, int limit, int lines) =>
         Find(symbol, kind, model, limit, lines, QueryDirect,
-            BridgeGate.ShouldTry() ? BridgeGate.FindReferencesViaXref : null);
+            // The bridge speaks the per-reference shape only; Group folds either.
+            BridgeGate.ShouldTry() ? (s, k, l, _) => BridgeGate.FindReferencesViaXref(s, k, l) : null);
 
     internal static ToolResult<object> Find(
         string symbol, string? kind, string? model, int limit, int lines,
@@ -97,14 +101,15 @@ public static class XrefReferences
         if (limit <= 0) limit = 200;
         var rowLimit = lines > 0 ? limit : (int)Math.Min((long)limit * RowsPerObject, MaxRows);
 
-        var (raw, directError) = direct(symbol, refKind, rowLimit);
+        var aggregate = lines <= 0;
+        var (raw, directError) = direct(symbol, refKind, rowLimit, aggregate);
         var source = "xrefdb";
         if (raw is null)
         {
             string? bridgeError = null;
             if (bridge is not null)
             {
-                (raw, bridgeError) = bridge(symbol, refKind, rowLimit);
+                (raw, bridgeError) = bridge(symbol, refKind, rowLimit, aggregate);
                 source = "xrefdb-bridge";
             }
             if (raw is null)
@@ -120,12 +125,18 @@ public static class XrefReferences
         raw.Remove("ok");
         raw.Remove("source");
         raw["_source"] = source;
-        if (lines > 0)
+        if (lines <= 0) return ToolResult<object>.Success(Group(raw, limit));
+
+        // Provenance and shape ahead of the rows: a caller that reads the head of a long answer
+        // must not miss which store answered.
+        var rows = new JsonObject { ["_source"] = source, ["mode"] = "references" };
+        foreach (var key in new[] { "symbol", "kindFilter", "scoped", "count", "truncated", "items" })
         {
-            raw["mode"] = "references";
-            return ToolResult<object>.Success(raw);
+            if (raw[key] is not { } value) continue;
+            raw.Remove(key);
+            rows[key] = value;
         }
-        return ToolResult<object>.Success(Group(raw, limit));
+        return ToolResult<object>.Success(rows);
     }
 
     /// <summary>
@@ -151,7 +162,7 @@ public static class XrefReferences
             var kind = (string?)row["kind"];
             if (kind is not null && !g.Kinds.Contains(kind)) g.Kinds.Add(kind);
             if (member is not null && !g.Members.Contains(member)) g.Members.Add(member);
-            groups[i] = g with { Refs = g.Refs + 1 };
+            groups[i] = g with { Refs = g.Refs + ((int?)row["refs"] ?? 1) };
         }
 
         var items = new JsonArray();
@@ -176,7 +187,7 @@ public static class XrefReferences
             ["scoped"] = (bool?)raw["scoped"] ?? false,
             ["mode"] = "names",
             ["count"] = items.Count,
-            ["references"] = rows.Count,
+            ["references"] = groups.Sum(g => g.Refs),
             // Cut off by the object cap, or the row read stopped before the last object.
             ["truncated"] = groups.Count > limit || ((bool?)raw["truncated"] ?? false),
             ["items"] = items,
@@ -186,12 +197,12 @@ public static class XrefReferences
         return result;
     }
 
-    private static (JsonObject? Result, string? Error) QueryDirect(string symbol, string? kind, int limit)
+    private static (JsonObject? Result, string? Error) QueryDirect(string symbol, string? kind, int limit, bool aggregate)
     {
         try
         {
             using var connection = new SqlConnection(ConnectionString());
-            var result = XrefQuery.Find(connection, symbol, kind, limit);
+            var result = XrefQuery.Find(connection, symbol, kind, limit, aggregate);
             if ((bool?)result["ok"] == true) return (result, null);
             return (null, (string?)result["error"] + ": " + (string?)result["message"]);
         }
