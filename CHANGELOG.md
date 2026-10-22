@@ -88,9 +88,15 @@ came back empty or short with no error.
   a reference kind that does not exist and return an empty list.
 - **`get table --include` works, and methods are opt-in.** The option was declared and never
   read, so every call returned every method signature (~44k tokens for `SalesLine`, most of it
-  methods). Parts are `fields,indexes,relations,deleteActions,methods` or `all`; the default is
-  every part but methods, with `methodCount` and a warning saying how to list them. An unknown
-  part is `BAD_INPUT`. Applies to the bridge path as well as the index.
+  methods). Parts are `fields,indexes,relations,deleteActions,fieldGroups,methods` or `all`; the
+  default is every part but methods, with `methodCount` and a warning saying how to list them. An
+  unknown part is `BAD_INPUT`. Applies to the bridge path as well as the index. The index records
+  no field groups, so naming `fieldGroups` there warns and points at `--merged`.
+- **`get table --merged` honours `--include` too.** It ignored the option and always returned the
+  whole merge. The merged view folds `fields`, `indexes`, `relations` and `fieldGroups`, and
+  `--include` now picks among them (default and `all`: every one). Naming `methods` or
+  `deleteActions` with `--merged` is `BAD_INPUT` — the merge does not fold them — instead of an
+  answer with the part quietly missing. The MCP `extension_info(mode=table-merge)` is unchanged.
 
 ### Added — `d365fo-cli` router for Claude and for the legacy Copilot layout
 

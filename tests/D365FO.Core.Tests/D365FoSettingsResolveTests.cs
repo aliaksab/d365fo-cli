@@ -2,13 +2,44 @@ using Xunit;
 
 namespace D365FO.Core.Tests;
 
+/// <remarks>
+/// Every test runs against a throw-away, empty config root (<c>D365FO_CONFIG_DIR</c>)
+/// with no profile selected. A profile sits between the environment and settings.json
+/// in the chain, and <see cref="D365FoSettings.ConfigPathOverrideForTests"/> redirects
+/// only settings.json — so a <c>D365FO_PROFILE</c> on the host (or a selection left in
+/// the real settings.json by <c>config use</c>) used to slip its real profile file in
+/// ahead of the temp settings.json these tests write.
+/// </remarks>
 [Collection(EnvironmentCollectionDefinition.Name)]
-public class D365FoSettingsResolveTests
+public sealed class D365FoSettingsResolveTests : IDisposable
 {
     // Use unlikely key names so a real settings.json on the test host cannot
     // collide with these deterministic env-var assertions.
     private const string Key = "D365FO_TEST_RESOLVE_KEY_XYZ";
     private const string FlagKey = "D365FO_TEST_RESOLVE_FLAG_XYZ";
+
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "d365fo-resolve-" + Guid.NewGuid().ToString("N"));
+    private readonly string? _savedConfigDir = Environment.GetEnvironmentVariable(D365FoSettings.ConfigDirKey);
+    private readonly string? _savedProfile = Environment.GetEnvironmentVariable(D365FoProfiles.ProfileKey);
+    private readonly string? _savedFlagProfile = D365FoProfiles.FlagProfile;
+
+    public D365FoSettingsResolveTests()
+    {
+        Directory.CreateDirectory(_root);
+        Environment.SetEnvironmentVariable(D365FoSettings.ConfigDirKey, _root);
+        Environment.SetEnvironmentVariable(D365FoProfiles.ProfileKey, null);
+        D365FoProfiles.FlagProfile = null;
+        D365FoSettings.ClearCacheForTests();
+    }
+
+    public void Dispose()
+    {
+        Environment.SetEnvironmentVariable(D365FoSettings.ConfigDirKey, _savedConfigDir);
+        Environment.SetEnvironmentVariable(D365FoProfiles.ProfileKey, _savedProfile);
+        D365FoProfiles.FlagProfile = _savedFlagProfile;
+        D365FoSettings.ClearCacheForTests();
+        try { Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
+    }
 
     [Fact]
     public void Resolve_returns_env_value_when_set()
