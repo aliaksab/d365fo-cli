@@ -120,7 +120,7 @@ public sealed class SilentEmptyLookupTests : IDisposable
     }
 
     [Theory]
-    [InlineData("all", new[] { "fields", "indexes", "relations", "deleteActions", "methods" })]
+    [InlineData("all", new[] { "fields", "indexes", "relations", "deleteActions", "fieldGroups", "methods" })]
     [InlineData("fields", new[] { "fields" })]
     [InlineData("Methods, delete-actions", new[] { "methods", "deleteActions" })]
     public void Include_selects_exactly_the_named_parts(string include, string[] expected)
@@ -205,9 +205,99 @@ public sealed class SilentEmptyLookupTests : IDisposable
         Assert.Equal(1, found.GetProperty("data").GetProperty("count").GetInt32());
     }
 
-    private void IndexOneTable()
+    // ---- get table --merged --include ----
+
+    [Fact]
+    public void Merged_returns_only_the_included_parts()
+    {
+        IndexOneTable(withExtension: true);
+
+        var (exit, envelope) = Run(() => new GetTableCommand().Execute(null!,
+            new GetTableCommand.Settings { Name = "ConSilentTable", Merged = true, Include = "fields", Output = "json" }));
+
+        Assert.Equal(0, exit);
+        var merged = envelope.GetProperty("data").GetProperty("merged");
+        Assert.Equal(new[] { "ConExtField", "ConId" },
+            merged.GetProperty("fields").EnumerateArray().Select(f => f.GetProperty("name").GetString()).OrderBy(n => n));
+        Assert.False(merged.TryGetProperty("indexes", out _));
+        Assert.False(merged.TryGetProperty("relations", out _));
+        Assert.False(merged.TryGetProperty("fieldGroups", out _));
+        Assert.True(merged.GetProperty("complete").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("all")]
+    public void Merged_by_default_and_with_all_returns_every_merged_part(string? include)
+    {
+        IndexOneTable(withExtension: true);
+
+        var (exit, envelope) = Run(() => new GetTableCommand().Execute(null!,
+            new GetTableCommand.Settings { Name = "ConSilentTable", Merged = true, Include = include, Output = "json" }));
+
+        Assert.Equal(0, exit);
+        var merged = envelope.GetProperty("data").GetProperty("merged");
+        foreach (var part in new[] { "fields", "indexes", "relations", "fieldGroups" })
+            Assert.True(merged.TryGetProperty(part, out _), part);
+        Assert.Equal("ConExtGroup", merged.GetProperty("fieldGroups")[0].GetProperty("name").GetString());
+    }
+
+    [Theory]
+    [InlineData("methods")]
+    [InlineData("fields,deleteActions")]
+    public void Merged_refuses_a_part_the_merge_does_not_fold(string include)
+    {
+        // Answering with the part simply missing is the silence --include was fixed to end.
+        var (exit, envelope) = Run(() => new GetTableCommand().Execute(null!,
+            new GetTableCommand.Settings { Name = "ConSilentTable", Merged = true, Include = include, Output = "json" }));
+
+        Assert.NotEqual(0, exit);
+        Assert.Equal(D365FoErrorCodes.BadInput, ErrorCode(envelope));
+        Assert.Contains("--merged", envelope.GetProperty("error").GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public void Field_groups_asked_of_the_index_say_where_to_get_them()
+    {
+        IndexOneTable();
+
+        var (exit, envelope) = Run(() => new GetTableCommand().Execute(null!,
+            new GetTableCommand.Settings { Name = "ConSilentTable", Include = "fieldGroups", Output = "json" }));
+
+        Assert.Equal(0, exit);
+        Assert.Contains(envelope.GetProperty("warnings").EnumerateArray(),
+            w => w.GetString()!.Contains("--merged", StringComparison.Ordinal));
+    }
+
+    private void IndexOneTable(bool withExtension = false)
     {
         var packages = Path.Combine(_root, "packages");
+        if (withExtension)
+        {
+            var extDir = Path.Combine(packages, "ConPkg", "ConModel", "AxTableExtension");
+            Directory.CreateDirectory(extDir);
+            File.WriteAllText(Path.Combine(extDir, "ConSilentTable.ConExt.xml"), """
+                <?xml version="1.0" encoding="utf-8"?>
+                <AxTableExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+                  <Name>ConSilentTable.ConExt</Name>
+                  <FieldGroups>
+                    <AxTableFieldGroup>
+                      <Name>ConExtGroup</Name>
+                      <Fields>
+                        <AxTableFieldGroupField>
+                          <DataField>ConExtField</DataField>
+                        </AxTableFieldGroupField>
+                      </Fields>
+                    </AxTableFieldGroup>
+                  </FieldGroups>
+                  <Fields>
+                    <AxTableField xmlns="" i:type="AxTableFieldString">
+                      <Name>ConExtField</Name>
+                    </AxTableField>
+                  </Fields>
+                </AxTableExtension>
+                """);
+        }
         var tableDir = Path.Combine(packages, "ConPkg", "ConModel", "AxTable");
         Directory.CreateDirectory(tableDir);
         File.WriteAllText(Path.Combine(tableDir, "ConSilentTable.xml"), """
