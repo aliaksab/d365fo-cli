@@ -14,7 +14,7 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
         public string Name { get; init; } = "";
 
         [CommandOption("--include <PARTS>")]
-        [System.ComponentModel.Description("Comma list of parts: fields,indexes,relations,deleteActions,methods — or all. Default: every part but methods (a large table declares hundreds; `methodCount` says how many were left out).")]
+        [System.ComponentModel.Description("Comma list of parts: fields,indexes,relations,deleteActions,fieldGroups,methods — or all. Default: every part but methods (a large table declares hundreds; `methodCount` says how many were left out). With --merged: fields,indexes,relations,fieldGroups.")]
         public string? Include { get; init; }
 
         [CommandOption("--merged")]
@@ -23,7 +23,7 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
     }
 
     /// <summary>The parts <c>--include</c> selects, keyed by their JSON name.</summary>
-    internal static readonly string[] Parts = ["fields", "indexes", "relations", "deleteActions", "methods"];
+    internal static readonly string[] Parts = ["fields", "indexes", "relations", "deleteActions", "fieldGroups", "methods"];
 
     /// <summary>
     /// Parse <c>--include</c>. Null means the default: every part but methods, which on a
@@ -56,6 +56,22 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
     }
 
     /// <summary>
+    /// The parts <c>--include</c> names one by one — not those <c>all</c> or the default
+    /// brings in — so a part that cannot be served is refused only when it was asked for.
+    /// </summary>
+    internal static HashSet<string> NamedParts(string? include)
+    {
+        var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(include)) return named;
+        foreach (var raw in include.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var part = Parts.FirstOrDefault(p => string.Equals(p, raw.Replace("-", ""), StringComparison.OrdinalIgnoreCase));
+            if (part is not null) named.Add(part);
+        }
+        return named;
+    }
+
+    /// <summary>
     /// Drop the unselected parts from a bridge payload (the serialised AxTable, whose
     /// collections are named like the parts) and say how many methods were left out.
     /// </summary>
@@ -77,6 +93,18 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
     private static IReadOnlyList<string>? MethodsOmitted(int count) => count == 0 ? null :
         [$"{count} method(s) not shown — pass --include methods (or --include all) to list them."];
 
+    /// <summary>
+    /// Warnings for the index answer: the methods left out, and field groups asked for by
+    /// name, which the index does not record (the merged view and the bridge do).
+    /// </summary>
+    private static IReadOnlyList<string>? IndexWarnings(string? include, HashSet<string> parts, int methodCount)
+    {
+        var warnings = new List<string>(MethodsOmitted(parts.Contains("methods") ? 0 : methodCount) ?? []);
+        if (NamedParts(include).Contains("fieldGroups"))
+            warnings.Add("The index does not record field groups — pass --merged to list them (folded with every extension's).");
+        return warnings.Count > 0 ? warnings : null;
+    }
+
     public override int Execute(CommandContext ctx, Settings settings)
     {
         var kind = OutputMode.Resolve(settings.Output);
@@ -87,11 +115,25 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
         // cannot come from the bridge's single-object read — resolve it before that gate.
         if (settings.Merged)
         {
+            // The merge folds fields, indexes, relations and field groups only. A part it does
+            // not carry is refused when named, rather than answered with silence.
+            var notMerged = NamedParts(settings.Include)
+                .Where(p => !D365FO.Core.Analysis.ExtensionAnswers.MergedParts.Contains(p, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            if (notMerged.Count > 0)
+            {
+                return RenderHelpers.Render(kind, ToolResult<object>.Fail(D365FoErrorCodes.BadInput,
+                    $"--merged does not fold {string.Join(" or ", notMerged)}: the merged view carries "
+                    + string.Join(", ", D365FO.Core.Analysis.ExtensionAnswers.MergedParts) + ".",
+                    "Drop --merged to read " + string.Join(" and ", notMerged) + " from the base table, "
+                    + "or drop them from --include."));
+            }
+
             // Through the shared answer, so `get table --merged` and the MCP
             // extension_info(mode=table-merge) return the same document rather than two that
             // agree by inspection.
             return RenderHelpers.Render(kind,
-                D365FO.Core.Analysis.ExtensionAnswers.TableMerge(RepoFactory.Create(), settings.Name));
+                D365FO.Core.Analysis.ExtensionAnswers.TableMerge(RepoFactory.Create(), settings.Name, parts));
         }
 
         if (BridgeGate.ShouldTry())
@@ -125,7 +167,7 @@ public sealed class GetTableCommand : Command<GetTableCommand.Settings>
             methodCount = parts.Contains("methods") ? (int?)null : details.Methods.Count,
             indexes = parts.Contains("indexes") ? details.Indexes : null,
             deleteActions = parts.Contains("deleteActions") ? details.DeleteActions : null,
-        }, MethodsOmitted(parts.Contains("methods") ? 0 : details.Methods.Count));
+        }, IndexWarnings(settings.Include, parts, details.Methods.Count));
 
         return RenderHelpers.Render(kind, result, _ =>
         {
