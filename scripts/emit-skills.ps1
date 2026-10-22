@@ -11,6 +11,11 @@
     skills/anthropic/<id>/SKILL.md        (Anthropic format: YAML description)
     skills/d365fo-cli/references/<id>.md  (Agent-skill resource: body only)
 
+  The three hand-written routers, skills/d365fo-cli/SKILL.md,
+  skills/anthropic/d365fo-cli/SKILL.md and skills/copilot/d365fo-cli.instructions.md,
+  are preserved. Their generated regions
+  (rule canon, topic table) are refreshed only by scripts/emit-skills.py.
+
   All outputs share the exact same body. Only the frontmatter is adapted to
   the target's semantics. The source file is the single source of truth.
 
@@ -186,8 +191,17 @@ $copilotOut      = Join-Path $OutRoot 'copilot'
 $anthropicOut    = Join-Path $OutRoot 'anthropic'
 $copilotSkillOut = Join-Path (Join-Path $OutRoot 'd365fo-cli') 'references'
 
-if (Test-Path $copilotOut)  { Remove-Item -Recurse -Force $copilotOut }
-if (Test-Path $anthropicOut) { Remove-Item -Recurse -Force $anthropicOut }
+# skills/copilot/d365fo-cli.instructions.md is the hand-written always-on router, not a topic.
+if (Test-Path $copilotOut) {
+    Get-ChildItem -Path $copilotOut | Where-Object { $_.Name -ne 'd365fo-cli.instructions.md' } |
+        Remove-Item -Recurse -Force
+}
+# skills/anthropic/d365fo-cli is the hand-written Claude router skill, not a topic:
+# keep it, and clear every topic folder so a retired topic does not linger.
+if (Test-Path $anthropicOut) {
+    Get-ChildItem -Path $anthropicOut | Where-Object { $_.Name -ne 'd365fo-cli' } |
+        Remove-Item -Recurse -Force
+}
 # Note: d365fo-cli/references is regenerated (not fully removed) so SKILL.md is preserved.
 if (Test-Path $copilotSkillOut) { Remove-Item -Recurse -Force $copilotSkillOut }
 
@@ -203,6 +217,7 @@ $parsed = foreach ($f in $files) {
     [pscustomobject]@{ File = $f; Meta = $meta; Body = $split.Body }
 }
 $topicIds = @($parsed | ForEach-Object { $_.Meta.id })
+if ($topicIds -contains 'd365fo-cli') { throw "Topic id 'd365fo-cli' is reserved for the router skill." }
 
 foreach ($p in $parsed) {
     # ASCII only: these .ps1 files have no BOM, so Windows PowerShell 5.1 reads

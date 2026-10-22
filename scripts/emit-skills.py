@@ -24,6 +24,8 @@ Outputs:
   skills/anthropic/<id>/SKILL.md
   skills/d365fo-cli/references/<id>.md
   skills/d365fo-cli/SKILL.md            (generated regions only)
+  skills/anthropic/d365fo-cli/SKILL.md  (generated regions only)
+  skills/copilot/d365fo-cli.instructions.md (generated regions only)
 """
 from __future__ import annotations
 
@@ -36,6 +38,12 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "skills" / "_source"
 OUT_ROOT = ROOT / "skills"
 FENCE = re.compile(r"^---\s*$", re.MULTILINE)
+
+# The hand-written router. One lives in skills/d365fo-cli/ (Copilot skill), one in
+# skills/anthropic/d365fo-cli/ (Claude) and one in skills/copilot/ (legacy Copilot
+# instructions, always on); each keeps its prose and gets only its marker-delimited
+# regions refreshed, so none may be wiped with the generated output.
+ROUTER_ID = "d365fo-cli"
 
 
 def split_frontmatter(text: str) -> tuple[str, str]:
@@ -206,13 +214,23 @@ def replace_region(text: str, name: str, body: str) -> str:
     return text[: i + len(begin)] + "\n" + body.rstrip("\n") + "\n" + text[j:]
 
 
-def emit_skill_md(topics: list[dict], canon: dict[str, str], path: Path) -> None:
-    """Refresh the generated regions of the hand-written d365fo-cli SKILL.md."""
+# How each router's topic table names a topic: the Copilot router lazily loads
+# references/<id>.md by name; the Claude router links the sibling topic skill.
+SKILL_MD_ROW = {
+    "d365fo-cli": ("| Resource file | Covers |", "| `{id}` | {covers} |"),
+    "anthropic": ("| Skill | Covers |", "| [`{id}`](../{id}/SKILL.md) | {covers} |"),
+    "copilot": ("| Instruction file | Covers |", "| [`{id}`]({id}.instructions.md) | {covers} |"),
+}
+
+
+def emit_skill_md(topics: list[dict], canon: dict[str, str], path: Path, target: str = "d365fo-cli") -> None:
+    """Refresh the generated regions of a hand-written d365fo-cli router SKILL.md."""
     if not path.exists():
         raise SystemExit(f"{path} not found")
 
-    rows = ["| Resource file | Covers |", "|---|---|"]
-    rows += [f"| `{t['id']}` | {t['covers']} |" for t in topics]
+    header, row = SKILL_MD_ROW[target]
+    rows = [header, "|---|---|"]
+    rows += [row.format(id=t["id"], covers=t["covers"]) for t in topics]
 
     blocks = []
     for canon_id, heading in SKILL_CANON:
@@ -230,9 +248,16 @@ def main() -> int:
     copilot_out      = OUT_ROOT / "copilot"
     anthropic_out    = OUT_ROOT / "anthropic"
     copilot_skill_out = OUT_ROOT / "d365fo-cli" / "references"
-    for p in (copilot_out, anthropic_out):
-        if p.exists():
-            shutil.rmtree(p)
+    # Every topic file/folder goes, so a retired topic does not linger; the routers stay.
+    copilot_router = f"{ROUTER_ID}.instructions.md"
+    if copilot_out.exists():
+        for child in copilot_out.iterdir():
+            if child.name != copilot_router:
+                shutil.rmtree(child) if child.is_dir() else child.unlink()
+    if anthropic_out.exists():
+        for child in anthropic_out.iterdir():
+            if child.name != ROUTER_ID:
+                shutil.rmtree(child) if child.is_dir() else child.unlink()
     # Only remove the references dir so SKILL.md is preserved
     if copilot_skill_out.exists():
         shutil.rmtree(copilot_skill_out)
@@ -254,6 +279,8 @@ def main() -> int:
                 raise SystemExit(f"{f.name}: missing '{required}'")
         parsed.append((f, meta, body))
     topic_ids = {meta["id"] for _, meta, _ in parsed}
+    if ROUTER_ID in topic_ids:
+        raise SystemExit(f"topic id '{ROUTER_ID}' is reserved for the router skill")
 
     for f, meta, body in parsed:
         print(f"» {f.name}")
@@ -267,7 +294,9 @@ def main() -> int:
                 raise SystemExit(f"canon id '{canon_id}' is declared by more than one topic")
             canon[canon_id] = block.strip()
 
-    emit_skill_md(topics, canon, OUT_ROOT / "d365fo-cli" / "SKILL.md")
+    emit_skill_md(topics, canon, OUT_ROOT / "d365fo-cli" / "SKILL.md", "d365fo-cli")
+    emit_skill_md(topics, canon, anthropic_out / ROUTER_ID / "SKILL.md", "anthropic")
+    emit_skill_md(topics, canon, copilot_out / copilot_router, "copilot")
 
     broken = check_links(OUT_ROOT)
     if broken:
@@ -276,7 +305,7 @@ def main() -> int:
                          "as `](<id>.md)` or to anything else by absolute URL.")
 
     print(f"\nDone. {len(files)} skill(s) emitted to all three targets (copilot, anthropic, d365fo-cli); "
-          f"{len(canon)} canon block(s) written into skills/d365fo-cli/SKILL.md.")
+          f"{len(canon)} canon block(s) written into the three d365fo-cli router files.")
     return 0
 
 

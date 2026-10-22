@@ -906,7 +906,7 @@ Copilot auto-discovers `.github/skills/d365fo-cli/` and loads the skill on deman
 
 ### Claude Code / Claude Desktop
 
-Drop `skills/anthropic/` into the project or `~/.claude/skills/`. Each `SKILL.md` triggers via its `applies_when` front-matter.
+Run `Install-D365FoClaudeSkills.ps1`, or drop the contents of `skills/anthropic/` into the project's `.claude/skills/` or `~/.claude/skills/`. The `d365fo-cli` skill is the entry point (first steps, tool mapping, rule canon); each topic `SKILL.md` triggers via its description and `applies_when` front-matter.
 
 ### Codex CLI / Gemini CLI
 

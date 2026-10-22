@@ -218,7 +218,7 @@ Remove-Item "<XppRepo>\.github\copilot-instructions.md" -ErrorAction SilentlyCon
 Remove-Item "<XppRepo>\.github\instructions" -Recurse -ErrorAction SilentlyContinue
 ```
 
-The legacy `skills/copilot/*.instructions.md` output is still emitted by `emit-skills.ps1` / `emit-skills.py` for environments that cannot use the `.github/skills/` format (e.g. GitHub Copilot versions that predate skill auto-discovery).
+The legacy `skills/copilot/*.instructions.md` output is still emitted by `emit-skills.ps1` / `emit-skills.py` for environments that cannot use the `.github/skills/` format (e.g. GitHub Copilot versions that predate skill auto-discovery). Copy the whole folder to `.github/instructions/`: `d365fo-cli.instructions.md` is the always-on rule canon and tool mapping, and each topic file attaches by its `applyTo` glob. Use it instead of the skill, not alongside it.
 
 ### Claude Code / Claude Desktop
 
@@ -226,8 +226,9 @@ The legacy `skills/copilot/*.instructions.md` output is still emitted by `emit-s
 .\scripts\Install-D365FoClaudeSkills.ps1 -XppRepo "K:\D365FO\MyProject"
 ```
 
-Installs one `.claude/skills/<topic>/SKILL.md` per knowledge topic, and prunes topics
-retired upstream. Manual equivalent: `python3 scripts/emit-skills.py` then
+Installs the `d365fo-cli` router skill (`.claude/skills/d365fo-cli/SKILL.md`: first steps,
+tool mapping and the X++ rule canon, the Claude counterpart of the Copilot `SKILL.md`) plus
+one `.claude/skills/<topic>/SKILL.md` per knowledge topic, and prunes topics retired upstream. Manual equivalent: `python3 scripts/emit-skills.py` then
 `cp -r skills/anthropic/. /your-repo/.claude/skills/`.
 
 ### Codex CLI / Gemini CLI / Cursor

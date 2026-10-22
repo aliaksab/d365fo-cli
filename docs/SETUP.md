@@ -231,7 +231,7 @@ flowchart LR
 >
 > In practice it fires reliably on D365FO work, because the `description` enumerates the artifact types. If it doesn't, name it in your prompt — *"use the d365fo-cli skill"* — or reference the topic file directly, e.g. *"follow references/coc-extension-authoring"*. Visual Studio shows which skills were applied in the chat reply; VS Code lists them under **References**.
 >
-> If you need the old deterministic behaviour, `skills/copilot/*.instructions.md` is still emitted — copy it to `.github/instructions/` as before. The two layouts coexist; the skill does not clobber them.
+> If you need the old deterministic behaviour, `skills/copilot/*.instructions.md` is still emitted — copy the whole folder to `.github/instructions/`. `d365fo-cli.instructions.md` (`applyTo: '**'`) is always on and carries the first steps, tool mapping and rule canon that the retired `.github/copilot-instructions.md` used to; each topic file attaches by its glob. Deploy **one** layout, not both: the two coexist without clobbering each other, but with both the canon reaches Copilot twice on every request.
 
 > ⚠️ **Never** use `@workspace` or built-in code search on AOT XML. It always fails. Copilot must use `d365fo` exclusively for codebase queries; the Skills enforce this.
 
@@ -250,8 +250,10 @@ flowchart LR
 .\scripts\Install-D365FoClaudeSkills.ps1 -XppRepo "K:\D365FO\MyProject"
 ```
 
-The Anthropic-format sibling of `Install-D365FoCopilotSkills.ps1`: it installs one
-`.claude/skills/<topic>/SKILL.md` per knowledge topic, regenerating them first if the
+The Anthropic-format sibling of `Install-D365FoCopilotSkills.ps1`: it installs the
+`d365fo-cli` router skill (`.claude/skills/d365fo-cli/SKILL.md`, which carries the mandatory
+first steps, the `d365fo` tool mapping and the X++ rule canon, and points at the topic skills)
+plus one `.claude/skills/<topic>/SKILL.md` per knowledge topic, regenerating them first if the
 emitted folder is empty, and prunes topics that were renamed or retired upstream. Both
 scripts emit from the same `skills/_source`, so the two ecosystems cannot disagree about
 a rule.
@@ -259,7 +261,7 @@ a rule.
 Manual equivalent, if you would rather not run the script:
 
 ```sh
-python3 scripts/emit-skills.py                            # emits skills/anthropic/*/SKILL.md
+python3 scripts/emit-skills.py                            # emits skills/anthropic/*/SKILL.md (router included)
 cp -r skills/anthropic/. /your-repo/.claude/skills/
 ```
 
@@ -347,7 +349,7 @@ The [one-line install](#one-line-install) at the top of this page **is** the qui
 | `NO_INDEX` | `d365fo index build && d365fo index extract` |
 | `stale-index` warning from `doctor` | `d365fo index refresh --model <Model>` (or just start the daemon) |
 | Copilot Chat says "There was an error executing code search" then writes generic X++ | VS Copilot Chat cannot search AOT XML — the `d365fo-cli` skill is not being picked up. Open the skills panel (Tools icon, bottom-right of Copilot Chat) and confirm `d365fo-cli` is listed; `.github/skills/d365fo-cli/` must sit next to the `.sln` (or in `%USERPROFILE%\.copilot\skills\`). Restart VS. For full automation switch Copilot Chat to **Agent** mode |
-| Copilot never mentions the `d365fo-cli` skill | The folder is not next to the `.sln` — VS does not search parent folders. Re-run the installer with `-XppRepo` = the solution folder, or copy the skill to `%USERPROFILE%\.copilot\skills\d365fo-cli`, then restart VS and ask in **Agent** mode. Say *"use the d365fo-cli skill"* to force it. Still nothing on an older Copilot build: deploy `skills/copilot/*.instructions.md` to `.github/instructions/`, which applies by glob and needs no skill support |
+| Copilot never mentions the `d365fo-cli` skill | The folder is not next to the `.sln` — VS does not search parent folders. Re-run the installer with `-XppRepo` = the solution folder, or copy the skill to `%USERPROFILE%\.copilot\skills\d365fo-cli`, then restart VS and ask in **Agent** mode. Say *"use the d365fo-cli skill"* to force it. Still nothing on an older Copilot build: deploy all of `skills/copilot/*.instructions.md` (including the always-on `d365fo-cli.instructions.md`) to `.github/instructions/`, which needs no skill support |
 | The skills panel (Tools icon in Copilot Chat) is missing | The panel is VS 2026 18.6+ only. On VS 2022 the skill still works — verify it by whether Copilot names `d365fo-cli` in its reply |
 | Index file appears locked | Stop any running `d365fo daemon` or `d365fo-mcp` process; `-wal` / `-shm` sidecar files are normal |
 | Settings differ between Developer PowerShell and PowerShell 7 | Re-run `d365fo init --persist-profile` — it writes both profiles and the JSON config |
