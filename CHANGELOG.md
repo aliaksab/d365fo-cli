@@ -19,6 +19,23 @@ was ported from.
 
 ## [Unreleased]
 
+### Added — `d365fo-cli` router for Claude and for the legacy Copilot layout
+
+- **`skills/anthropic/d365fo-cli/SKILL.md`** is the Claude counterpart of the Copilot
+  `skills/d365fo-cli/SKILL.md`. It holds the mandatory first steps, the `d365fo` tool mapping
+  (prefer `d365fo search`/`get`/`find` over Grep/Glob), the CLI rules and the X++ rule canon,
+  plus a table linking every topic skill. Before this, the Claude install shipped only the
+  per-topic skills: nothing told Claude to reach for `d365fo` first, and each canon block
+  reached it only if the one topic that owns the block happened to load.
+- `Install-D365FoClaudeSkills.ps1` deploys it to `.claude/skills/d365fo-cli/` with no change
+  to how you run it. `emit-skills.py` refreshes its canon and topic-table regions; both
+  emitters keep the folder instead of wiping it, and `RuleCanonTests` checks it for drift.
+- **`skills/copilot/d365fo-cli.instructions.md`** (`applyTo: '**'`) restores the always-on
+  canon to the legacy `.github/instructions/` layout for Copilot builds without skill discovery.
+  It was lost when `.github/copilot-instructions.md` became the skill, leaving only glob-scoped
+  topic files that never fire on read-only or investigation tasks. Same generated regions,
+  same drift test. Deploy it instead of the `d365fo-cli` skill, not alongside it.
+
 ### Added — named configuration profiles, one per D365FO environment/UDE (#210)
 
 - **Profiles are files, `%LOCALAPPDATA%\d365fo-cli\profiles\<name>.json`,** in the same flat

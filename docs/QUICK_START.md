@@ -84,7 +84,7 @@ parse, pass review, and drop your data on read. Every scaffold goes through `gen
 ## 6. Give an agent the same access
 
 ```powershell
-# Claude Code / Claude Desktop — copies the per-topic skills into <XppRepo>/.claude/skills/
+# Claude Code / Claude Desktop — copies the d365fo-cli router + per-topic skills into <XppRepo>/.claude/skills/
 .\scripts\Install-D365FoClaudeSkills.ps1 -XppRepo "K:\D365FO\MyProject"
 
 # GitHub Copilot in Visual Studio / VS Code

@@ -11,6 +11,9 @@ edited by hand:
 skills/_source/<id>.md
    ├── skills/copilot/<id>.instructions.md      (GitHub Copilot)
    ├── skills/anthropic/<id>/SKILL.md           (Claude — one skill per topic)
+   ├── skills/anthropic/d365fo-cli/SKILL.md     (Claude router — canon + topic table regions)
+   ├── skills/d365fo-cli/SKILL.md               (Copilot router — canon + topic table regions)
+   ├── skills/copilot/d365fo-cli.instructions.md (legacy Copilot router, always on — same regions)
    ├── skills/d365fo-cli/references/<id>.md     (one skill, lazy references)
    └── embedded into D365FO.Core                (`d365fo knowledge`, the MCP tool)
 ```
